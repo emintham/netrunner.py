@@ -1,6 +1,25 @@
 from test_helper import TestHelper
-from card import Card, CardContainer
+from card import CardBase, Card, CardContainer
 from utils import parse_json
+
+
+class CardTests(TestHelper):
+    def setUp(self):
+        self.card = Card()
+
+    def test_card_starts_facedown(self):
+        self.assertFalse(self.card.is_faceup)
+
+    def test_flip(self):
+        self.assertFalse(self.card.is_faceup)
+        self.card.flip()
+        self.assertTrue(self.card.is_faceup)
+        self.card.flip()
+        self.assertFalse(self.card.is_faceup)
+
+    def test_view_facedown_card_returns_faux_card(self):
+        self.assertFalse(self.card.is_faceup)
+        self.assertEqual(self.card.view(), CardBase())
 
 
 class CardContainerTests(TestHelper):
