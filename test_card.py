@@ -1,5 +1,5 @@
 from test_helper import TestHelper
-from card import CardBase, Card, CardContainer
+from card import CardBase, Card, CardContainer, Deck
 from utils import parse_json
 
 
@@ -27,7 +27,7 @@ class CardContainerTests(TestHelper):
         self.container = CardContainer()
 
     def init_all_cards(self):
-        self.container = CardContainer('cards.json')
+        self.container = CardContainer(json='cards.json')
 
     def test_container_starts_off_empty(self):
         self.assertEmpty(self.container)
@@ -41,6 +41,7 @@ class CardContainerTests(TestHelper):
         num_cards = 5
         self.init_all_cards()
         random_cards = self.container.choice(num=num_cards)
+        print random_cards
         other_container = CardContainer(random_cards)
         self.assertLength(other_container, num_cards)
         self.assertIsInstance(other_container, CardContainer)
@@ -71,16 +72,43 @@ class CardContainerTests(TestHelper):
 
 
 class DeckTests(TestHelper):
-    def test_validate_incorrect_agenda_points(self):
-        self.container = Deck('weyland1.json')
-        self.assertFalse(self.container.valid)
+    def test_validate_agenda_points(self):
+        self.container = Deck(json='missing_agenda.json')
+        self.assertFalse(self.container.validate_agenda_points())
+
+        self.container = Deck(json='correct_agenda.json')
+        self.assertTrue(self.container.validate_agenda_points())
 
     def test_validate_composition(self):
-        self.container = Deck('mixed.json')
+        self.container = Deck(json='mixed.json')
         self.assertFalse(self.container.validate_composition())
-        self.assertFalse(self.container.valid)
 
-    def test_validate_influence_limit(self):
-        self.container = Deck('over_influence.json')
+        self.container = Deck(json='only_weyland.json')
+        self.assertTrue(self.container.validate_composition())
+
+    def test_validate_only_one_identity(self):
+        self.container = Deck(json='two_identities.json')
+        self.assertFalse(self.container.validate_has_only_one_identity())
+
+        self.container = Deck(json='one_identity.json')
+        self.assertTrue(self.container.validate_has_only_one_identity())
+
+    def test_validate_influence(self):
+        self.container = Deck(json='over_influence.json')
         self.assertFalse(self.container.validate_influence())
-        self.assertFalse(self.container.valid)
+
+        self.container = Deck(json='at_influence.json')
+        self.assertTrue(self.container.validate_influence())
+
+        self.container = Deck(json='under_influence.json')
+        self.assertTrue(self.container.validate_influence())
+
+    def test_validate_gte_minimum_deck_size(self):
+        self.container = Deck(json='under_minimum_deck_size.json')
+        self.assertFalse(self.container.validate_deck_size())
+
+        self.container = Deck(json='at_minimum_deck_size.json')
+        self.assertTrue(self.container.validate_deck_size())
+
+        self.container = Deck(json='above_minimum_deck_size.json')
+        self.assertTrue(self.container.validate_deck_size())

@@ -1,11 +1,13 @@
 import copy
 import random
+from itertools import groupby
 
-from utils import parse_json
+from utils import JSONParserMixin
 
 
-class CardBase(object):
+class CardBase(JSONParserMixin):
     fields = (
+        'code',
         'title',
         'type',
         'type_code',
@@ -27,13 +29,16 @@ class CardBase(object):
         'uniqueness',
         'limited',
         'cyclenumber',
+        'cost',
     )
 
     class UnrecognizedFormat(Exception):
-        """Raised when an unrecognized format is passed in as a card."""
+        """Raised when an invalid format is being passed as initializer."""
         pass
 
-    def __init__(self, card=None):
+    def __init__(self, card=None, *args, **kwargs):
+        super(CardBase, self).__init__(*args, **kwargs)
+
         if not card:
             self._faux = True
             return
@@ -43,12 +48,8 @@ class CardBase(object):
         if isinstance(card, CardBase):
             self = copy.deepcopy(card)
             return
-        try:
-            card = parse_json(card) or card
-        except ValueError:
-            raise CardBase.UnrecognizedFormat(
-                'Could not parse {} as a json.'.format(card)
-            )
+
+        card = self.parsed_json or card
 
         if not isinstance(card, dict):
             raise CardBase.UnrecognizedFormat(
@@ -59,9 +60,37 @@ class CardBase(object):
         for field in self.fields:
             setattr(self, field, card.get(field, None))
 
+    def __unicode__(self):
+        return u''.format(self.title)
+
+    def __repr__(self):
+        return u'<{}: {}>'.format(self.__class__.__name__, self)
+
     @property
     def faux(self):
         return self._faux
+
+    @property
+    def is_identity(self):
+        return self.type_code == 'identity'
+
+    @property
+    def is_runner(self):
+        return self.side_code == 'runner'
+
+    @property
+    def is_corp(self):
+        return self.side_code == 'corp'
+
+    def costs(self, card):
+        """Returns the cost of a card to a given identity card."""
+        if not self.cost:
+            return 0
+        elif not card.is_identity or self.is_identity:
+            return 0
+        elif self.side_code == card.side_code or self.side_code == 'neutral':
+            return 0
+        return self.cost
 
     def __eq__(self, other):
         if not isinstance(other, CardBase):
@@ -80,11 +109,17 @@ class Card(object):
     def __init__(self, card=None, faceup=False):
         self._faceup = faceup
         if card:
-            self._card = card if isinstance(card, CardBase) else CardBase()
+            if isinstance(card, Card):
+                self._card = card.card
+                return
 
-        if isinstance(card, Card):
-            self = copy.deepcopy(card)
-            return
+            self._card = card if isinstance(card, CardBase) else CardBase(card)
+
+    def __unicode__(self):
+        return u''.format(self.card.title)
+
+    def __repr__(self):
+        return u'<{}: {}>'.format(self.__class__.__name__, self)
 
     @property
     def is_faceup(self):
@@ -98,25 +133,35 @@ class Card(object):
             return CardBase()
         return self._card
 
+    @property
+    def card(self):
+        return self._card
 
-class CardContainer(object):
-    class UnrecognizedFormat(Exception):
-        """Raised when an unrecognized format is passed in as a card container."""
-        pass
+    def __getattr__(self, attr):
+        if attr.startswith('__'):
+            raise AttributeError(attr)
 
-    def __init__(self, cards=None):
+        if hasattr(self, attr):
+            return self.__dict__.get(attr)
+        elif hasattr(self.card, attr):
+            return getattr(self.card, attr)
+        else:
+            raise AttributeError(
+                'Neither {} nor {} has attribute {}'.format(self.__class__, self.card.__class__, attr)
+            )
+
+
+class CardContainer(JSONParserMixin):
+    def __init__(self, cards=None, *args, **kwargs):
+        super(CardContainer, self).__init__(*args, **kwargs)
+
         if isinstance(cards, CardContainer):
             self.frozen_cards = cards.frozen_cards
             return
 
         self.frozen_cards = []
 
-        try:
-            cards = parse_json(cards) or cards
-        except ValueError:
-            raise CardContainer.UnrecognizedFormat(
-                'Could not parse {} as a json.'.format(cards)
-            )
+        cards = self.parsed_json or cards
 
         if cards and hasattr(cards, '__iter__'):
             for card in cards:
@@ -126,12 +171,27 @@ class CardContainer(object):
                     raise
                 self.frozen_cards.append(card)
         self.cards = copy.deepcopy(self.frozen_cards)
+        self.frozen_cards = sorted(self.frozen_cards, key=lambda c: c.title)
 
     def __len__(self):
         return len(self.cards)
 
     def __iter__(self):
         return iter(self.cards)
+
+    def pretty_print(self):
+        """Pretty prints the deck list."""
+        grouped = groupby(self.frozen_cards, lambda c: c.title)
+        output = ''
+        for title, group in grouped:
+            output += '{}x {}\n'.format(len(list(group)), title)
+        return output
+
+    def __unicode__(self):
+        return u''.format(self.pretty_print())
+
+    def __repr__(self):
+        return u'<{}:\n{}>'.format(self.__class__.__name__, self)
 
     def choice(self, num=1):
         """
@@ -145,3 +205,76 @@ class CardContainer(object):
 
     def shuffle(self):
         random.shuffle(self.cards)
+
+
+class Deck(CardContainer):
+    class NoIdentityFound(Exception):
+        """No Identity found for this deck."""
+        pass
+
+    def __init__(self, *args, **kwargs):
+        super(Deck, self).__init__(*args, **kwargs)
+        self._valid = self.validate()
+        self._identity = self.find_identity()
+        self._influence_limit = self._identity.influencelimit
+        self._side = self._identity.side_code
+        self._min_deck_size = self._identity.minimumdecksize
+
+    def __unicode__(self):
+        output = 'Identity: ' + str(self.identity) + '\n'
+        output += '-' * (len(output) - 1) + '\n'
+        output += super(Deck, self).__unicode__()
+        return output
+
+    @property
+    def valid(self):
+        return self._valid
+
+    @property
+    def identity(self):
+        return self._identity
+
+    @property
+    def influence_limit(self):
+        return self._influence_limit
+
+    @property
+    def min_deck_size(self):
+        return self._min_deck_size
+
+    def find_identity(self):
+        for card in self.frozen_cards:
+            if card.is_identity:
+                return card
+        else:
+            raise Deck.NoIdentityFound
+
+    def validate(self):
+        """Introspect all validate_* methods and run them."""
+        valid = True
+        for attr_key, attr_value in self.__dict__.iteritems():
+            if 'validate_' in attr_key:
+                valid &= attr_value()
+
+        return valid
+
+    def validate_deck_size(self):
+        return len(self.frozen_cards) >= self.min_deck_size
+
+    def validate_agenda_points(self):
+        return True
+
+    def validate_has_only_one_identity_card(self):
+        identities = [card for card in self.frozen_cards if card.is_identity]
+        return len(identities) == 1
+
+    def validate_composition(self):
+        """Validate deck has only cards from one side."""
+        sides = set([card.side_code for card in self.frozen_cards])
+        return len(sides) == 1
+
+    def validate_influence(self):
+        """Validate influence is within identity's limit."""
+        influence_total = sum([card.costs(self.identity)
+                               for card in self.frozen_cards])
+        return influence_total <= self.influence_limit
