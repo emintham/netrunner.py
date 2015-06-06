@@ -2,7 +2,7 @@ import json
 
 
 def parse_json(filename=None):
-    """Takes a str as a filepath and returns the parsed json."""
+    """Takes a str as a filepath or a json and returns the parsed json."""
     if not filename or not isinstance(filename, str):
         return None
 
@@ -10,7 +10,7 @@ def parse_json(filename=None):
         with open(filename, 'rb') as fp:
             return json.loads(fp.read())
     except IOError:
-        raise IOError('{} not found!'.format(filename))
+        return json.loads(filename)
     except ValueError:
         raise
 
