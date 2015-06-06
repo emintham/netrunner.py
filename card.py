@@ -1,6 +1,7 @@
+# -*- coding: utf-8 -*-
 import copy
 import random
-from itertools import groupby
+from itertools import groupby, chain
 
 from utils import JSONParserMixin
 
@@ -50,6 +51,7 @@ class CardBase(JSONParserMixin):
             return
 
         card = self.parsed_json or card
+        del self.parsed_json
 
         if not isinstance(card, dict):
             raise CardBase.UnrecognizedFormat(
@@ -61,10 +63,10 @@ class CardBase(JSONParserMixin):
             setattr(self, field, card.get(field, None))
 
     def __unicode__(self):
-        return u''.format(self.title)
+        return u'{}'.format(self.title)
 
     def __repr__(self):
-        return u'<{}: {}>'.format(self.__class__.__name__, self)
+        return '<{}: {}>'.format(self.__class__.__name__, self.title)
 
     @property
     def faux(self):
@@ -116,10 +118,10 @@ class Card(object):
             self._card = card if isinstance(card, CardBase) else CardBase(card)
 
     def __unicode__(self):
-        return u''.format(self.card.title)
+        return u'{}'.format(self.card.title)
 
     def __repr__(self):
-        return u'<{}: {}>'.format(self.__class__.__name__, self)
+        return '<{}: {}>'.format(self.__class__.__name__, self.card.title)
 
     @property
     def is_faceup(self):
@@ -141,14 +143,15 @@ class Card(object):
         if attr.startswith('__'):
             raise AttributeError(attr)
 
-        if hasattr(self, attr):
-            return self.__dict__.get(attr)
-        elif hasattr(self.card, attr):
-            return getattr(self.card, attr)
-        else:
-            raise AttributeError(
-                'Neither {} nor {} has attribute {}'.format(self.__class__, self.card.__class__, attr)
-            )
+        for obj in chain([self, self.card], self.__class__.mro(), self.card.__class__.mro()):
+            if attr in obj.__dict__:
+                result = obj.__dict__[attr]
+                if isinstance(result, property):
+                    return result.__get__(self, obj.__class__)
+                return obj.__dict__[attr]
+        raise AttributeError(
+            'Neither {} nor {} has attribute {}'.format(self.__class__, self.card.__class__, attr)
+        )
 
 
 class CardContainer(JSONParserMixin):
@@ -162,6 +165,7 @@ class CardContainer(JSONParserMixin):
         self.frozen_cards = []
 
         cards = self.parsed_json or cards
+        del self.parsed_json
 
         if cards and hasattr(cards, '__iter__'):
             for card in cards:
@@ -182,16 +186,16 @@ class CardContainer(JSONParserMixin):
     def pretty_print(self):
         """Pretty prints the deck list."""
         grouped = groupby(self.frozen_cards, lambda c: c.title)
-        output = ''
+        output = u''
         for title, group in grouped:
-            output += '{}x {}\n'.format(len(list(group)), title)
+            output += u'{}x {}\n'.format(len(list(group)), unicode(title))
         return output
 
     def __unicode__(self):
-        return u''.format(self.pretty_print())
+        return unicode(self.pretty_print())
 
     def __repr__(self):
-        return u'<{}:\n{}>'.format(self.__class__.__name__, self)
+        return '<{}: {}>'.format(self.__class__.__name__, '...' )
 
     def choice(self, num=1):
         """
@@ -221,7 +225,7 @@ class Deck(CardContainer):
         self._min_deck_size = self._identity.minimumdecksize
 
     def __unicode__(self):
-        output = 'Identity: ' + str(self.identity) + '\n'
+        output = 'Identity: {}\n'.format(self.identity)
         output += '-' * (len(output) - 1) + '\n'
         output += super(Deck, self).__unicode__()
         return output
@@ -264,7 +268,7 @@ class Deck(CardContainer):
     def validate_agenda_points(self):
         return True
 
-    def validate_has_only_one_identity_card(self):
+    def validate_has_only_one_identity(self):
         identities = [card for card in self.frozen_cards if card.is_identity]
         return len(identities) == 1
 

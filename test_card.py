@@ -27,14 +27,14 @@ class CardContainerTests(TestHelper):
         self.container = CardContainer()
 
     def init_all_cards(self):
-        self.container = CardContainer(json='cards.json')
+        self.container = CardContainer(json='all_cards.json')
 
     def test_container_starts_off_empty(self):
         self.assertEmpty(self.container)
 
     def test_init_container_from_json(self):
         self.init_all_cards()
-        cards = parse_json('cards.json')
+        cards = parse_json('all_cards.json')
         self.assertLength(self.container, len(cards))
 
     def test_init_container_from_other_container(self):
